@@ -1,76 +1,37 @@
-import string
 
-ct = string.digits + string.ascii_uppercase + string.ascii_lowercase + '_$'
-
-
-
-def encode(chunk):
-    """
-    Given a list of 2-length character strings from an 
-    uncompressed IFC GUID, return a string representing 
-    the list's contents compressed according to the IFC 
-    GUID mapping (ct).
-
-    encode() and decode() are inverses, 
-    e.g.,  encode([decode(['1s'])]) == '1s'
-    """
-    r = []
-    n = int(''.join(chunk), 16)
-    while n > 0:
-        r.append(ct[n%64])
-        n = n >> 6
-    return ''.join(reversed(r))
-
-
-
-def decode(chunk):
-    """
-    Given a list of 2-length character strings from an 
-    compressed IFC GUID, return a string representing 
-    the list's contents /de/compressed according to the 
-    IFC oGUID mapping (ct).
-    """
-    n = 0
-    chunk = ''.join(chunk)
-    for c in chunk[:-1]:
-        n = (n + ct.index(c))<<6
-    n += ct.index(chunk[-1])
-    return format(n,'x')
-
-
+b64 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$'
+b16 = '0123456789ABCDEF'
 
 def compress(s):
-    """
-    Given an uncompress IFC GUID string, 
-    returned its compressed equivalent
-    as a string.
+    s = s.replace('-', '')
+    # TODO: check valid ascii
+    return ccompress(s)
 
-    compress() and decompress are inverses, 
-    i.e., let s = decompress(compress(s))
-    """
-    s = s.replace('-','')
-    bytes = map(''.join, zip(*[iter(s)]*2))
-    r = [encode(bytes[0:1]),  \
-         encode(bytes[1:4]),  \
-         encode(bytes[4:7]),  \
-         encode(bytes[7:10]), \
-         encode(bytes[10:13]),\
-         encode(bytes[13:16])]
-    return ''.join(r)
+def ccompress(s):
+    assert(len(s)==32)
+    s = '0' + s
+    oi = 0
+    output = [0] * 22
+    for i in range(0,33,3):
+        n = int(s[i], 16)*(16**2) + int(s[i+1], 16)*16 + int(s[i+2], 16)
+        output[oi+1] = b64[n%64]
+        output[oi] = b64[n/64]
+        oi += 2
+    return ''.join(output)
 
-
+def cdecompress(s):
+    assert(len(s)==22)
+    oi = 0
+    output = [0] * 33
+    for i in range(0, 22, 2):
+        n = b64.index(s[i])*64 + b64.index(s[i+1])
+        t = n>>4
+        output[oi+2] = b16[n%16]
+        output[oi+1] = b16[t%16]
+        output[oi] = b16[t>>4]
+        oi += 3
+    return ''.join(output[1:])
 
 def decompress(s):
-    """
-    Given a compressed IFC GUID string,
-    return its uncompressed equivalent 
-    as a string.
-    """
-    parts = map(''.join, zip(*[iter(s)]*2))
-    r = ''.join([decode(parts[0:1]), \
-                 decode(parts[1:3]), \
-                 decode(parts[3:5]), \
-                 decode(parts[5:7]), \
-                 decode(parts[7:9]), \
-                 decode(parts[9:12])])
-    return [:8] + "-" + r[8:12] + "-" + r[12:16] + "-" + r[16:20] + "-" + r[20:]
+    s = cdecompress(s)
+    return s[:8]+"-"+ s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:]
