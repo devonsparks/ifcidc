@@ -4,10 +4,19 @@
 
 #define TRUE 1
 #define FALSE 0
-#define HEX2I(A) ((A > '9') ? (A &~ 0x20) - 'A' + 10 : (A - '0'))
+#define B162I(B16A) ((B16A > '9')   ? (B16A &~ 0x20) - 'A' + 10 : (B16A - '0'))
+#define B642I(B64A) ((B64A == '-')  ? 62 :                                  \
+		     (B64A == '$')  ? 63 :				    \
+		     ((B64A > '9')  ?				            \
+		      ((B64A > 'Z') ?                                       \
+		       (B64A & ~0x20) - 'A' + 36  :                         \
+		       (B64A & ~0x20) - 'A' + 10) :	                    \
+		      (B64A - '0')))
 
+		      
 const char *b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 const char *b16 = "0123456789ABCDEF";
+
 
 char compress(const char *in, char *out);
 char decompress(const char *in, char *out);
@@ -73,9 +82,9 @@ compress(const char *in, char *out) {
   
   i = oi = n = 0;
   while(i<33) {
-    n  = HEX2I(in[i    ]) << 8;
-    n += HEX2I(in[i + 1]) << 4;
-    n += HEX2I(in[i + 2]);
+    n  = B162I(in[i    ]) << 8;
+    n += B162I(in[i + 1]) << 4;
+    n += B162I(in[i + 2]);
     out[oi + 1] = b64[n%64];
     out[oi] = b64[n/64];
     oi += 2;
@@ -85,28 +94,15 @@ compress(const char *in, char *out) {
   return TRUE;
 }
 
-short
-b642i(char a) {
-  short i = 0;
-  while(i < 64) {
-    if(b64[i] == a)
-      return i;
-    i++;
-  }
-  return -1;
-}
-    
-
-
 char
 decompress(const char *in, char *out) {
   int i, oi, n, t;
 
   i = oi = n =  0;
   while(i<22) {
-    n  = b642i(in[i]) * 64;
-    n += b642i(in[i + 1]);
-    t = n/16;
+    n  = B642I(in[i]) * 64;
+    n += B642I(in[i + 1]);
+    t = n>>4;
     out[oi + 2] = b16[n%16];
     out[oi + 1] = b16[t%16];
     out[oi    ] = b16[t/16];
@@ -116,4 +112,4 @@ decompress(const char *in, char *out) {
   out[oi] = '\0';
   return TRUE;
 }
-      
+
