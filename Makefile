@@ -1,4 +1,4 @@
 all: ifcidc
 
-ifcidc: ifcidc.c
-	gcc -o ifcidc ifcidc.c
+ifcidc: src/ifcidc.c
+	gcc -o ifcidc src/ifcidc.c
