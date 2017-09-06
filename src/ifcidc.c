@@ -2,16 +2,20 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <assert.h>
+#include <string.h>
+
 #include "ifcidc.h"
 
-#define OK   0
-#define NOK -1
-#define B162I(B16A) (b16mask[B16A])
-#define B642I(B64A) (b64mask[B64A])
-#define IN_B16(A) ((A < 0x80) && b16mask[A] >= 0)
-#define IN_B64(A) ((A < 0x80) && b64mask[A] >= 0)
+#define ERR(msg) (fprintf(stderr, "Err: %s\n", msg))
 
+#define B162I(A)  (b16mask[(unsigned char)A])
+#define B642I(A)  (b64mask[(unsigned char)A])
+#define IN_B16(A) (!(b16mask[(unsigned char)A] < 0))
+#define IN_B64(A) (!(b64mask[(unsigned char)A] < 0))
 
+#define COMLEN    (22)
+#define DECOMLEN  (32)
+  
 static const char
 b16mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 
@@ -20,58 +24,131 @@ static const char
 b64mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 63, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, -1, -1, -1, -1, 62, -1, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1};
 
 
-static const char
-*b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
-
-static const
-char *b16 = "0123456789ABCDEF";
-
-static char com(const char *in, char *out);
-static char decom(const char *in, char *out);
-static char fixid(const char *in, char **out);
-static char unfixid(const char *in, char **out);
-
-int
-main(void)
-{
-   char *sample = "76cbdc2e-a238-4725-83a3-be115ba5459c";
+static const char *
+b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 
 
-  char *done;
-  if(ifcidc_compress(sample, &done) == NOK) {
-    printf("Error");
-  return 0x80;
-  }
-  else {
-    printf("%s\n", done);
-  }
+static const char *
+b16 = "0123456789ABCDEF";
+
+static struct _errordesc {
+  int  code;
+  char *message;
+} errordesc[] = {
+  { S_OK, "No error" }  
+};
+
+static IFCIDC_Status
+com(const char *in, char *out);
+
+
+static IFCIDC_Status
+decom(const char *in, char *out);
+
+
+static IFCIDC_Status
+fixid(const char *in, char **out);
+
+
+static IFCIDC_Status
+unfixid(const char *in, char **out);
+
+char *
+ifcidc_err_msg(IFCIDC_Status err) {
+  return errordesc[0].message;
+}
   
-  char *dec;
+  
+IFCIDC_Status
+ifcidc_compress(const char *in, char **out) {
+  char *fixed;
+  char *comed;
+  unsigned char i;
 
-    if(ifcidc_decompress(done, &dec) == NOK) {
-    printf("Error");
-    return 0x80;
-  } else {
-    printf("%s\n", dec);
+  if(strlen(in) != (DECOMLEN + 3 + 1)) {
+    return S_ERR_INPUT_LEN;
     }
+    
+  if(in[DECOMLEN + 3 + 1] != '\0') {
+    return S_ERR_SENTINEL;
+  }
 
-  free(done);
-   free(dec);
+  for(i = 0; in[i] != '\0'; i++) {
+    if(in[i] != '-' && !IN_B16(in[i])) {
+      return S_ERR_ASCII;
+    }
+  }
   
-  return 0;
+  if(fixid(in, &fixed) != S_OK) {
+    return S_ERR_NORMALIZE;
+  }
+    
+  if((comed = malloc((COMLEN + 1) * sizeof(char))) == NULL) {
+    return S_ERR_ALLOC;
+  }
+  
+  if(com(fixed, comed) != S_OK) {
+    free(comed);
+    return S_ERR_COM;
+  }
+
+  free(fixed);  
+  *out = comed;
+  return S_OK;
 }
 
+
+
+IFCIDC_Status
+ifcidc_decompress(const char *in, char **out) {
+  char *fixed;
+  char *decomed;
+  unsigned char i;
+
+  if(strlen(in) != COMLEN) {
+    return S_ERR_INPUT_LEN;
+  }
+     
+  if(in[COMLEN] != '\0') {
+    return S_ERR_SENTINEL;
+  }
+
+  for(i = 0; in[i] != '\0'; i++)
+    if(!IN_B64(in[i]))
+      return S_ERR_ASCII;
+  
+  if((decomed = malloc((1 + DECOMLEN)* sizeof(char))) == NULL) {
+    return S_ERR_ALLOC;
+  }
+  
+  if(decom(in, decomed) != S_OK) {
+    free(decomed);
+    return S_ERR_COM;
+  }
+  
+  if(unfixid(decomed, &fixed) != S_OK) {
+    free(decomed);
+    return S_ERR_NORMALIZE;
+  }
+
+  free(decomed);
+  *out = fixed;
+  return S_OK;
+}
+
+
+
 /* fixid: strip out hypens, add zero pad */
-static char
+static IFCIDC_Status
 fixid(const char *in, char **out) {
-  int i, j;
+  unsigned int i, j;
   char *s;
 
-  if((s = malloc((1 + 32 + 1) * sizeof(char))) == NULL)
-    return NOK;
+  if((s = malloc((1 + DECOMLEN + 1) * sizeof(char))) == NULL)
+    return S_ERR_ALLOC;
 
   s[0] = '0';
-  s[32 + 1] = '\0';
+  s[DECOMLEN + 1] = '\0';
   
   for(i = j = 0; in[i] != '\0'; i++) {
     if(in[i] != '-') {
@@ -79,23 +156,25 @@ fixid(const char *in, char **out) {
       }
   }
 
-  assert(j == 32);
+  assert(j == DECOMLEN);
 
   *out = s;
-  return OK;
+  return S_OK;
   
 }
 
+
+
 /* unfixid: add hyphens in, remove zero pad */
-static char
+static IFCIDC_Status
 unfixid(const char *in, char **out) {
-  int i, j;
+  unsigned int i, j;
   char *s;
 
   if((s = malloc((32 + 1) * sizeof(char))) == NULL)
-    return NOK;
+    return S_ERR_ALLOC;
 
-  s[32 + 1] = '\0';
+  s[DECOMLEN] = '\0';
 
   for(j = 0, i = 1; in[i] != '\0';) {
     if(j == 8 || j == 13 || j == 18 || j == 23) {
@@ -107,85 +186,18 @@ unfixid(const char *in, char **out) {
   }
 
   *out = s;
-  return OK;
+  return S_OK;
   
 }
 
 
-char
-ifcidc_compress(const char *in, char **out) {
-  char *fixed;
-  char *comed;
-  short i;
 
-  if(in[36] != '\0') {
-    return NOK;
-  }
-
-  for(i = 0; in[i] != '\0'; i++) {
-    if(in[i] != '-' && !IN_B16(in[i])) {
-      return NOK;
-    }
-  }
-  
-  if(fixid(in, &fixed) == NOK) {
-    return NOK;
-  }
-    
-  if((comed = malloc((22 + 1) * sizeof(char))) == NULL) {
-    return NOK;
-  }
-  
-  if(com(fixed, comed) == NOK) {
-    free(comed);
-    return NOK;
-  }
-
-  free(fixed);
-  *out = comed;
-  return OK;
-}
-
-char
-ifcidc_decompress(const char *in, char **out) {
-  char *fixed;
-  char *decomed;
-  short i;
-
-  if(in[22] != '\0') {
-    return NOK;
-  }
-
-  for(i = 0; in[i] != '\0'; i++)
-    if(!IN_B64(in[i]))
-      return NOK;
-  
-  if((decomed = malloc((32 + 1) * sizeof(char))) == NULL) {
-    return NOK;
-  }
-  
-  if(decom(in, decomed) == NOK) {
-    free(decomed);
-    return NOK;
-  }
-  
-  if(unfixid(decomed, &fixed) == NOK) {
-    free(decomed);
-    return NOK;
-  }
-
-  free(decomed);
-  *out = fixed;
-  return OK;
-}
-
-
-static char
+static IFCIDC_Status
 com(const char *in, char *out) {
   int i,oi, n;
  
   i = oi = n = 0;
-  while(i < 33) {
+  while(i < DECOMLEN) {
     n  = B162I(in[i    ]) << 8;
     n += B162I(in[i + 1]) << 4;
     n += B162I(in[i + 2]);
@@ -195,15 +207,17 @@ com(const char *in, char *out) {
     i  += 3;
   }
   out[oi] = '\0';
-  return OK;
+  return S_OK;
 }
 
-static char
+
+
+static IFCIDC_Status
 decom(const char *in, char *out) {
   int i, oi, n, t;
 
   i = oi = n =  0;
-  while(i < 22) {
+  while(i < COMLEN) { // check stop condition
     n  = B642I(in[i]) << 6;
     n += B642I(in[i + 1]);
     t  = n / 16;
@@ -214,5 +228,6 @@ decom(const char *in, char *out) {
     i  += 2;
   }
   out[oi] = '\0';
-  return OK;
+  return S_OK;
 }
+

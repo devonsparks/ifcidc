@@ -1,4 +1,7 @@
 all: ifcidc
 
-ifcidc: src/ifcidc.c
-	gcc -o ifcidc src/ifcidc.c
+ifcidc: src/ifcc.c
+	gcc -Wall -o ifcc src/ifcc.c src/ifcidc.c
+
+ifctest: src/ifctest.c
+	gcc -Wall -o ifctest src/ifctest.c src/ifcidc.c
