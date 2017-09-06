@@ -12,8 +12,6 @@
 #define IN_B16(A) (!(b16mask[(unsigned char)A] < 0))
 #define IN_B64(A) (!(b64mask[(unsigned char)A] < 0))
 
-#define COMLEN    (22)
-#define DECOMLEN  (32)
   
 static const char
 b16mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
@@ -30,6 +28,7 @@ b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 static const char *
 b16 = "0123456789ABCDEF";
 
+
 static const struct
 _errordesc {
   int  code;
@@ -43,6 +42,7 @@ _errordesc {
   { S_ERR_ALLOC,     "Unable to allocate space for processing."},
   { S_ERR_COM,       "Unable to perform compression operation."}
 };
+
 
 static IFCIDC_Status
 com(const char *in, char *out);
@@ -63,7 +63,7 @@ unfixid(const char *in, char **out);
 
 char *
 ifcidc_err_msg(IFCIDC_Status err) {
-  short es;
+  unsigned short es;
 
   es = sizeof(errordesc)/sizeof(struct _errordesc);
   while(es-- > 0) {
@@ -81,11 +81,11 @@ ifcidc_compress(const char *in, char **out) {
   char *comed;
   unsigned char i;
 
-  if(strlen(in) != (DECOMLEN + 3 + 1)) {
+  if(strlen(in) != IFCIDC_DECOM_LEN) {
     return S_ERR_INPUT_LEN;
     }
     
-  if(in[DECOMLEN + 3 + 1] != '\0') {
+  if(in[IFCIDC_DECOM_LEN] != '\0') {
     return S_ERR_SENTINEL;
   }
 
@@ -99,7 +99,7 @@ ifcidc_compress(const char *in, char **out) {
     return S_ERR_NORMALIZE;
   }
     
-  if((comed = malloc((COMLEN + 1) * sizeof(char))) == NULL) {
+  if((comed = malloc((IFCIDC_COM_LEN + 1) * sizeof(char))) == NULL) {
     return S_ERR_ALLOC;
   }
   
@@ -121,11 +121,11 @@ ifcidc_decompress(const char *in, char **out) {
   char *decomed;
   unsigned char i;
 
-  if(strlen(in) != COMLEN) {
+  if(strlen(in) != IFCIDC_COM_LEN) {
     return S_ERR_INPUT_LEN;
   }
      
-  if(in[COMLEN] != '\0') {
+  if(in[IFCIDC_COM_LEN] != '\0') {
     return S_ERR_SENTINEL;
   }
 
@@ -133,7 +133,7 @@ ifcidc_decompress(const char *in, char **out) {
     if(!IN_B64(in[i]))
       return S_ERR_ASCII;
   
-  if((decomed = malloc((1 + DECOMLEN)* sizeof(char))) == NULL) {
+  if((decomed = malloc((IFCIDC_FIXED_DECOM_LEN + 1)* sizeof(char))) == NULL) {
     return S_ERR_ALLOC;
   }
   
@@ -160,11 +160,11 @@ fixid(const char *in, char **out) {
   unsigned int i, j;
   char *s;
 
-  if((s = malloc((1 + DECOMLEN + 1) * sizeof(char))) == NULL)
+  if((s = malloc((1 + IFCIDC_FIXED_DECOM_LEN + 1) * sizeof(char))) == NULL)
     return S_ERR_ALLOC;
 
   s[0] = '0';
-  s[DECOMLEN + 1] = '\0';
+  s[IFCIDC_FIXED_DECOM_LEN + 1] = '\0';
   
   for(i = j = 0; in[i] != '\0'; i++) {
     if(in[i] != '-') {
@@ -172,7 +172,7 @@ fixid(const char *in, char **out) {
       }
   }
 
-  assert(j == DECOMLEN);
+  assert(j == IFCIDC_FIXED_DECOM_LEN);
 
   *out = s;
   return S_OK;
@@ -190,7 +190,7 @@ unfixid(const char *in, char **out) {
   if((s = malloc((32 + 1) * sizeof(char))) == NULL)
     return S_ERR_ALLOC;
 
-  s[DECOMLEN] = '\0';
+  s[IFCIDC_FIXED_DECOM_LEN] = '\0';
 
   for(j = 0, i = 1; in[i] != '\0';) {
     if(j == 8 || j == 13 || j == 18 || j == 23) {
@@ -213,7 +213,7 @@ com(const char *in, char *out) {
   int i,oi, n;
  
   i = oi = n = 0;
-  while(i < DECOMLEN) {
+  while(i < IFCIDC_FIXED_DECOM_LEN) {
     n  = B162I(in[i    ]) << 8;
     n += B162I(in[i + 1]) << 4;
     n += B162I(in[i + 2]);
@@ -233,7 +233,7 @@ decom(const char *in, char *out) {
   int i, oi, n, t;
 
   i = oi = n =  0;
-  while(i < COMLEN) { // check stop condition
+  while(i < IFCIDC_COM_LEN) { // check stop condition
     n  = B642I(in[i]) << 6;
     n += B642I(in[i + 1]);
     t  = n / 16;
