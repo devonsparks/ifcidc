@@ -30,7 +30,7 @@ main(const int argc, char *argv[])
   IFCIDC_Status status; 
   
   if(!(argc > 1))
-      return -1;
+      return EXIT_FAILURE;
  
   com = 1;
   fin = NULL;
@@ -60,7 +60,7 @@ main(const int argc, char *argv[])
   if(fin != NULL) {
     if((fip = fopen(fin, "r")) == NULL) {
       fprintf(stderr,"Failed to open file %s\n", fin);
-      return -1;
+      return EXIT_FAILURE;
     }    
   }
 
@@ -68,7 +68,7 @@ main(const int argc, char *argv[])
   if(fon != NULL) {
     if((fop = fopen(fon, "w")) == NULL) {
       fprintf(stderr,"Failed to open file %s\n", fon);
-      return -1;
+      return EXIT_FAILURE;
     }    
   }
 
@@ -79,14 +79,17 @@ main(const int argc, char *argv[])
   status = (com == 1) ?
     process_lines(fip, fop, IFCIDC_DECOM_LEN, &ifcidc_compress) :
     process_lines(fip, fop, IFCIDC_COM_LEN, &ifcidc_decompress) ;
-  
-  if(status != S_OK) {
-    fprintf(stderr, "%s\n", ifcidc_err_msg(status));
-  }
-  
+
+
   fclose(fip);
   fclose(fop);
-  return 0;
+
+  if(status != S_OK) {
+    fprintf(stderr, "%s: %s\n", argv[0], ifcidc_err_msg(status));
+    return EXIT_FAILURE;
+  }
+  
+  return EXIT_SUCCESS;
 
 }
 

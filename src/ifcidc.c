@@ -6,7 +6,6 @@
 
 #include "ifcidc.h"
 
-#define ERR(msg) (fprintf(stderr, "Err: %s\n", msg))
 
 #define B162I(A)  (b16mask[(unsigned char)A])
 #define B642I(A)  (b64mask[(unsigned char)A])
@@ -31,11 +30,18 @@ b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
 static const char *
 b16 = "0123456789ABCDEF";
 
-static struct _errordesc {
+static const struct
+_errordesc {
   int  code;
   char *message;
 } errordesc[] = {
-  { S_OK, "No error" }  
+  { S_OK,            "Compression successful." },
+  { S_ERR_INPUT_LEN, "Unexpected input length."},
+  { S_ERR_SENTINEL,  "Expected string sentinel not found."},
+  { S_ERR_ASCII,     "Non-ASCII character found in input."},
+  { S_ERR_NORMALIZE, "Unable to normalize input string."},
+  { S_ERR_ALLOC,     "Unable to allocate space for processing."},
+  { S_ERR_COM,       "Unable to perform compression operation."}
 };
 
 static IFCIDC_Status
@@ -53,9 +59,19 @@ fixid(const char *in, char **out);
 static IFCIDC_Status
 unfixid(const char *in, char **out);
 
+
+
 char *
 ifcidc_err_msg(IFCIDC_Status err) {
-  return errordesc[0].message;
+  short es;
+
+  es = sizeof(errordesc)/sizeof(struct _errordesc);
+  while(es-- > 0) {
+    if (errordesc[es].code == err) {
+      return errordesc[es].message;
+    }
+  }
+  return "";
 }
   
   
