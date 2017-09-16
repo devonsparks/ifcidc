@@ -1,0 +1,552 @@
+@    
+<h2>Context</h2>
+<p>
+ If you work with IFC files in any depth, you'll inevitably confront IFC's slightly unusual GUID encoding scheme. If you're used to authoring applications like Revit, you might expect IFC GUIDs to follow the canonical UUID encoding for unique 128-bit numbers. Something like:
+</p>
+    <pre>b29d2e4d-9209-4ef1-aa55-9df70bf727fe</pre>
+<p>
+  Instead, you'll find 22-character ASCII character strings, like the first argument to this IfcBeam instance:
+</p>
+
+<pre>#23359= IFCBEAM('2odIvDaWbEyQfLdVSBzoV_',5,'ANCHOR ROD','RB1 1/2''','RB1 1/2''',23356,23358,'ANR0(?)');</pre>
+
+
+<p>
+These 22-character strings also represent the same 128-bit number, albeit in a compressed form that seems far removed from the canonical encoding. Our task is to understand how these two encodings map to one another and to translate this understanding in a computer program.
+</p>
+    
+<p>
+To start, let's set our problem constraints. Many CAD authoring applications represent GUIDs as 128-bit numbers using the canonical UUID encoding scheme (RFC 4122). This encoding follows strict rules. The UUID's 16 octets are represented using 32 hexidecimal (base 16) digits diplayed in five groups separated by hyphens. This implies four bits per character. We can map between these base-16 digits and their familiar base 10 representions using a lookup table:
+</p>
+  <pre>
+   0         1     
+   0123456789012345
+   &varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;
+   0123456789ABCDEF
+  </pre>
+  
+<p>Mapping the same 128-bit number to the encoding seen in IFC files requires similar lookup table, this time using 22 base-64 digits (6 bits each) and documented as part of the IFC standard:</p>
+
+<pre>
+   0         1         2         3         4         5         6
+   0123456789012345678901234567890123456789012345678901234567890123
+   &varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;&varr;
+   0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$
+</pre>
+
+<p>
+  Converting between the two encodings requires two tasks:
+  <ol>
+    <li>Asking how many groups of four bits fit in a sequence of six-bit characters and vice versa. Let the number of bits in the resulting sequence be S.</li>
+    <li>Partition the 128 bits into groups of 128/S. For each group, take N bits at a time, where N = 6 for compression, N = 4 for decompression, and use the associated lookup tables to convert the N-bit number into its associated character encoding. The resulting characters make up the encoded GUID.</li>
+  </ol>
+</p>
+
+<p>
+Solving the first task is easy. Because S = LCD(4,6) = 12, 12 bits is sufficient to hold both three 16-bit characters or two 64-bit characters. More formally, for any two 64-bit numbers A1, A2 and three 16-bit numbers B1, B2, B3, the following relationship holds:
+<div><math>A1*2<sup>6</sup> + A2 = B1*2<sup>8</sup> + B2*2<sup>4</sup> + B3.</math></div>
+</p>
+
+<p>
+The second task requires a little more thought. Because 128 mod 12 &ne; 0, one of the 128/S groups will be truncated. To solve this, we could choose a.) to add an additional four bits to our UUID buffer to support byte aligned operations (because 132 mod 12 = 0) or b.) have some additional logic to hand the corner cases at the buffer boundary. We opt for the former case, believing that the need for a working buffer is a fair price for a closer mapping between our reasoning and the resulting code. We can use the formal relationship derived above to perform the (de)compression for all 11 12-bit groups in the 128 + 4 = 132 bit sized buffer.
+</p>
+
+
+@
+
+<h2>Implementation Preliminaries</h2>
+
+<p>
+We'll apply our strategy for IFC GUID compression in the creation of a simple library to automate the process. Every library needs a name. We'll call ours IFCIDC, an uncreative abbreviation for "IFC (gu)ID Compressor".
+</p>
+
+<p>
+Next, consider the interface specification for such a library. We only need two public procedures -- one to compress an IFC GUID and one to decompress. Naturally, they are duals, so for a string L, decompress(compress(L)) = L. We imagine each of these procedures taking two arguments: the first, in, is the GUID string to be processed, and the second, out, points to a location for us to store the generated dual GUID. Attaching the result of the (de)compression to a location passed by argument frees us to use the procedure's return type for status notification (e.g., OK, FAILED). 
+
+
+<<ifcidc.h>>=
+#ifndef _IFCIDC_H
+#define _IFCIDC_H
+
+<<H_Constants>>
+
+typedef enum  {
+<<H_Statuses>>
+} IFCIDC_Status;
+
+
+extern IFCIDC_Status ifcidc_compress(const char *in, char **out);
+extern IFCIDC_Status ifcidc_decompress(const char *in, char **out);
+extern char *ifcidc_err_msg(IFCIDC_Status err);
+
+#endif
+
+@
+<p>
+Three constants are likely to come in handy throughout our program: the length of an uncompressed UUID string (including hyphens), the length of the "normalized" uncompressed UUID string (without hyphens), and the length of the compressed GUID string. Let's make those available from the start so we're less likely to pollute the source file with magic numbers.
+</p>
+
+<<H_Constants>>=
+#define IFCIDC_DECOM_LEN       (36)
+#define IFCIDC_FIXED_DECOM_LEN (32)
+#define IFCIDC_COM_LEN         (22)
+
+@
+<p>
+We don't know what kinds of errors we could trigger until we get further into development, so to start let's brazenly assume every (de)compression invocation returns success.
+</p>
+
+<<H_Statuses>>=
+	S_OK = 0,
+	
+@
+<h2>Core Implementation</h2>
+
+<p>
+Our library implementation will follow a typical structure:
+</p>
+
+<<ifcidc.c>>=
+<<Headers>>
+<<Macros>>
+<<Declarations>>
+<<Definitions>>
+
+@
+<p>
+We'll make sure to include our library header after those from the standard library:
+</p>
+
+<<Headers>>=
+<<Standard Headers>>
+
+#include "ifcidc.h"
+
+@
+<h3>Creating the lookup tables</h3>
+<p>
+Our first task is to create programmatic versions of the lookup tables we defined during our initial discussion. These tables need to provide bidirectional lookup: given an index, return the associated character, and given a character, return the associated index.
+</p>
+
+<p>
+Doing this in the forward direction (index to characters) is easy: just create a character array for each table.
+</p>
+
+<<Declarations>>=
+
+static const char *
+b64 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
+
+
+static const char *
+b16 = "0123456789ABCDEF";
+
+@
+<p>
+Converting characters to table indices requires a bit more work. We assume our incoming data will be filtered to only provide ASCII data to the compression procedures (we'll enforce this later). That means there are 128 possible input characters to be used as indices in our "backwards" lookup table. If we create a 128 character array, one entry per ASCII character, we can store the indices of those characters into the complementary lookup table in each cell. For example, because ASCII 'A' has decimal value 65, and it is located at index 10 in the forward base-64 lookup table, we store 10 at index 65 in the complementary lookup table. We do this for every character in the forward lookup tables. Because array indices are never negative, we use any negative number to indicate that the given ASCII character is not present in the complementary lookup table.
+</p>
+
+<<Declarations>>=
+
+static const char
+b16mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+
+
+static const char
+b64mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 63, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, -1, -1, -1, -1, 62, -1, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1};
+
+@
+<p>
+This approach is not the only way to solve the problem. We could have created these bidirectional lookup tables with some conditional logic. Instead, we opted to use complementary index arrays because they provides constant-time lookup, small code size, and a close mapping to our conceptual model. This will work so long as we provide bounds checking on the array indices.
+</p>
+
+<p>
+We can wrap lookups and bounds checking into macros, one for each lookup table:
+</p>
+
+<<Macros>>=
+
+#define B162I(A)  (b16mask[(unsigned char)A & 0x7F])
+#define B642I(A)  (b64mask[(unsigned char)A & 0x7F])
+#define IN_B16(A) (!(b16mask[(unsigned char)A & 0x7F] < 0))
+#define IN_B64(A) (!(b64mask[(unsigned char)A & 0x7F] < 0))
+
+@
+<h3>Compression Implementation</h3>
+
+<p>
+We now have enough scaffolding to implement our core compression algorithm. We assume a private (static) procedure that takes in our uncompressed UUID (normalized with one byte padding and without hyphens) and modifies its second argument to produce the compressed equivalent.
+</p>
+<<Declarations>>=
+
+static IFCIDC_Status
+com(const char *in, char *out);
+
+@
+<p>
+Similarly for our core decompression algorithm:
+</p>
+
+<<Declarations>>=
+
+static IFCIDC_Status
+decom(const char *in, char *out);
+
+@ 
+<p>
+The algorithm comes directly from our preliminary discussion: for every 12-bit sequence in the input string, extract the base-16 number it represents, then compute the base-64 character equivalents and store them in the output string. 
+</p>
+
+<<Definitions>>=
+static IFCIDC_Status
+com(const char *in, char *out) {
+  int i,oi, n;
+ 
+  i = oi = n = 0;
+  while(i < IFCIDC_FIXED_DECOM_LEN) {
+    n  = B162I(in[i    ]) << 8;
+    n += B162I(in[i + 1]) << 4;
+    n += B162I(in[i + 2]);
+    out[oi + 1] = b64[n % 64];
+    out[oi] = b64[n / 64];
+    oi += 2;
+    i  += 3;
+  }
+  out[oi] = '\0';
+  return S_OK;
+}
+
+@
+<p>
+The same approach works for decompression. The code intends to reflect that compression and decompression are dual operations.
+</p>
+
+<<Definitions>>=
+static IFCIDC_Status
+decom(const char *in, char *out) {
+  int i, oi, n, t;
+
+  i = oi = n =  0;
+  while(i < IFCIDC_COM_LEN) { // check stop condition
+    n  = B642I(in[i]) << 6;
+    n += B642I(in[i + 1]);
+    t  = n / 16;
+    out[oi + 2] = b16[n % 16];
+    out[oi + 1] = b16[t % 16];
+    out[oi    ] = b16[t / 16];
+    oi += 3;
+    i  += 2;
+  }
+  out[oi] = '\0';
+  return S_OK;
+}
+
+@
+<h3>String Munging</h3>
+
+<p>
+Our implementation strategy requires some munging of the uncompressed UUID string. Namely, that we have to remove the hyphens from the incoming string and add an extra byte of padding to the start of the string to support byte aligned operations. We'll call the procedure that performs this operation fixid, and its dual, unfixid. They'll use the similar in-out argument conventions as the core compression procedures, with one exception: rather than mutating the output string directly, we'll have (un)fixid take responsibility for allocating our working buffer, which means the client will only have to provide a handle for the buffer to attach to and not provide the buffer itself.
+</p>
+
+<<Declarations>>=
+static IFCIDC_Status
+fixid(const char *in, char **out);
+
+static IFCIDC_Status
+unfixid(const char *in, char **out);
+
+@ 
+<p>
+Because we'll be allocating memory for the buffer, we'll need access to malloc, and so stdlib.h. Because (un)fixed are critical operations, it's prudent to include pre/post assertions to avoid contract violations.
+</p>
+
+<<Standard Headers>>=
+#include <stdlib.h>
+#include <assert.h>
+@
+<p>
+Finally, because the malloc may fail, we introduce a new IFCIDC_Status, S_ERR_ALLOC, to address this case.
+</p>
+
+<<H_Statuses>>=
+	S_ERR_ALLOC,
+
+@
+<p>
+Once that's done, the implementation of fixid becomes straightforward:
+</p>
+
+<<Definitions>>=
+static IFCIDC_Status
+fixid(const char *in, char **out) {
+  unsigned int i, j;
+  char *s;
+
+  if((s = malloc((1 + IFCIDC_FIXED_DECOM_LEN + 1) * sizeof(char))) == NULL)
+    return S_ERR_ALLOC;
+
+  s[0] = '0';
+  s[IFCIDC_FIXED_DECOM_LEN + 1] = '\0';
+  
+  for(i = j = 0; in[i] != '\0'; i++) {
+    if(in[i] != '-') {
+	s[++j] = in[i];
+      }
+  }
+
+  assert(j == IFCIDC_FIXED_DECOM_LEN);
+
+  *out = s;
+  return S_OK;
+  
+}
+
+@
+<p>
+unfixid just needs to reverse the work done by fixid: adding the hyphens back in at indices 8, 13, 18, and 23, and removing the leading byte padding we used in the working buffer.
+</p>
+
+<<Definitions>>=
+static IFCIDC_Status
+unfixid(const char *in, char **out) {
+  unsigned int i, j;
+  char *s;
+
+  if((s = malloc((IFCIDC_FIXED_DECOM_LEN + 1) * sizeof(char))) == NULL)
+    return S_ERR_ALLOC;
+
+  s[IFCIDC_FIXED_DECOM_LEN] = '\0';
+
+  for(j = 0, i = 1; in[i] != '\0';) {
+    if(j == 8 || j == 13 || j == 18 || j == 23) {
+      s[j++] = '-';
+    }
+    else {       
+      s[j++] = in[i++];
+    }
+  }
+
+  *out = s;
+  return S_OK;
+  
+}
+
+@ 
+<p>
+Now we have core compression algorithms and their frontends that can take care of buffer allocation and string normalization. Now all we have to do is tie them together in a public library interface (defined in ifcidc.h) and address the possible failure modes on the input data. We'll look at them in turn, providing handles for the normalized (fixed) UUID, its compressed equivalent, and an index variable i.
+</p>
+
+<<Definitions>>=
+IFCIDC_Status
+ifcidc_compress(const char *in, char **out) {
+  char *fixed;
+  char *comed;
+  unsigned char i;
+
+  <<Check Compress Input Length>>
+  <<Check Compress Input Sentinel>>
+  <<Check ASCII Compliance>>
+  <<Check fixid Success>>
+  <<Check Result Allocation>>  
+  <<Check Compression Success>>    
+
+   free(fixed);  
+  *out = comed;
+  return S_OK;
+}
+
+@
+<p>
+We'll need one IFC_Status for each of the possible failure modes. Let's add them now, skipping the S_ERR_ALLOC we already redefined.
+</p>
+
+<<H_Statuses>>=
+	S_ERR_INPUT_LEN,
+	S_ERR_SENTINEL,
+	S_ERR_ASCII,
+	S_ERR_NORMALIZE,
+	S_ERR_COM
+@ 
+<p>
+We'll use strlen to check the input length. This means we'll need to use string.h.
+</p>
+
+<<Standard Headers>>=
+#include <string.h>
+
+@
+<p>
+Now the failure modes are straightforward to write:
+</p>
+
+<<Check Compress Input Length>>=
+  if(strlen(in) != IFCIDC_DECOM_LEN) {
+    return S_ERR_INPUT_LEN;
+    }
+
+<<Check Compress Input Sentinel>>=
+  if(in[IFCIDC_DECOM_LEN] != '\0') {
+    return S_ERR_SENTINEL;
+  }
+
+<<Check ASCII Compliance>>=
+  for(i = 0; in[i] != '\0'; i++) {
+    if(in[i] != '-' && !IN_B16(in[i])) {
+      return S_ERR_ASCII;
+    }
+  }
+
+<<Check fixid Success>>=
+  if(fixid(in, &fixed) != S_OK) {
+    return S_ERR_NORMALIZE;
+  }
+
+<<Check Result Allocation>>=
+  if((comed = malloc((IFCIDC_COM_LEN + 1) * sizeof(char))) == NULL) {
+    return S_ERR_ALLOC;
+  }
+
+<<Check Compression Success>>=
+  if(com(fixed, comed) != S_OK) {
+    free(comed);
+    return S_ERR_COM;
+  }
+
+@
+<p>
+The public GUID decompression procedure is similar enough to its compression counterpart that we present the failure modes inline. The one exception is that the decompression and normalization calls are reversed, for the simple reason that we can only "denormalize" a string after we've decompressed it.
+</p>
+
+<<Definitions>>=
+IFCIDC_Status
+ifcidc_decompress(const char *in, char **out) {
+  char *fixed;
+  char *decomed;
+  unsigned char i;
+
+  if(strlen(in) != IFCIDC_COM_LEN) {
+    return S_ERR_INPUT_LEN;
+  }
+     
+  if(in[IFCIDC_COM_LEN] != '\0') {
+    return S_ERR_SENTINEL;
+  }
+
+  for(i = 0; in[i] != '\0'; i++)
+    if(!IN_B64(in[i]))
+      return S_ERR_ASCII;
+  
+  if((decomed = malloc((IFCIDC_FIXED_DECOM_LEN + 1)* sizeof(char))) == NULL) {
+    return S_ERR_ALLOC;
+  }
+  
+  if(decom(in, decomed) != S_OK) {
+    free(decomed);
+    return S_ERR_COM;
+  }
+  
+  if(unfixid(decomed, &fixed) != S_OK) {
+    free(decomed);
+    return S_ERR_NORMALIZE;
+  }
+
+  free(decomed);
+  *out = fixed;
+  return S_OK;
+}
+
+@
+<h2>Error Interpretation</h2>
+
+<p>
+Finally, we'd like our error codes to have some human-readable interpretation. For this, we create a mapping between error codes and error messages.
+</p>
+
+<<Declarations>>=
+static const struct
+_errordesc {
+  int  code;
+  char *message;
+} errordesc[] = {
+  { S_OK,            "Compression successful." },
+  { S_ERR_INPUT_LEN, "Unexpected input length."},
+  { S_ERR_SENTINEL,  "Expected string sentinel not found."},
+  { S_ERR_ASCII,     "Non-ASCII character found in input."},
+  { S_ERR_NORMALIZE, "Unable to normalize input string."},
+  { S_ERR_ALLOC,     "Unable to allocate space for processing."},
+  { S_ERR_COM,       "Unable to perform compression operation."}
+};
+
+
+@
+<p>
+This permits us to write a utility function to look up an error message from a given error code.</p>
+
+<<Definitions>>=
+char *
+ifcidc_err_msg(IFCIDC_Status err) {
+  unsigned short es;
+
+  es = sizeof(errordesc)/sizeof(struct _errordesc);
+  while(es-- > 0) {
+    if (errordesc[es].code == err) {
+      return errordesc[es].message;
+    }
+  }
+  return "";
+}
+
+@
+<p>
+This completes the interface specification we wrote in our header file. We now can merge all this into a shared library.
+</p>
+
+<h2>Building the IFCIDC shared library</h2>
+
+<p>
+We'll use a makefile to control library compilation. This allows us to produce a dynamic library, libifcidc.so, for use in client applications.
+</p>
+
+<<Makefile>>=
+<<Toplevel Targets>>
+<<Folder Structure Targets>>
+<<Source and Library Targets>>
+<<Documentation Targets>>
+
+
+<<Toplevel Targets>>=
+all: bin/libifcidc.so doc/ifcidc.html
+
+<<Folder Structure Targets>>=
+src:; \
+	mkdir -p $@
+test:;\
+	mkdir -p $@
+bin:; \
+	mkdir -p $@
+doc:;\
+	mkdir -p $@
+
+<<Source and Library Targets>>=
+src/ifcidc.c: ifcidc.nw | src;\
+	notangle -Rifcidc.c ifcidc.nw > $@
+
+src/ifcidc.h: ifcidc.nw | src;\
+	notangle -Rifcidc.h ifcidc.nw > $@
+
+bin/ifcidc.o: src/ifcidc.c src/ifcidc.h | bin;\
+	gcc -c -o $@ -Wall -Werror -fpic src/ifcidc.c
+
+bin/libifcidc.so: bin/ifcidc.o | bin;\
+	gcc -shared -o $@ bin/ifcidc.o
+
+<<Documentation Targets>>=
+doc/ifcidc.html: ifcidc.nw | doc;\
+	noweave -html ifcidc.nw > $@
+
+@
+<h2>Writing a Client Application</h2>
+
+<p>
+We now use our library, libifcidc.so, in an example command line utility for IFC GUID compression. It's not entirely portable (it assumes a POSIX compliant system) but is small enough to be ported with minimal effort. We call this utility <emph>ifcc</emph>, a play off "cc" for "compression" or "compilation".
+</p>
