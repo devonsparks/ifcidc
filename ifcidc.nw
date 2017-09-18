@@ -97,8 +97,7 @@ We don't know what kinds of errors we could trigger until we get further into de
 </p>
 
 <<H_Statuses>>=
-	S_OK = 0,
-	
+	S_OK = 0,	
 @
 <h2>Core Implementation</h2>
 
@@ -149,11 +148,25 @@ Converting characters to table indices requires a bit more work. We assume our i
 <<Declarations>>=
 
 static const char
-b16mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+b16mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1,          \
+	     -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1} ;
 
 
 static const char
-b64mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 63, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1, -1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, -1, -1, -1, -1, 62, -1, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1};
+b64mask[] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	     -1, -1, -1, -1, 63, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, \
+	      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1,          \
+	     -1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, \
+	     25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, -1, -1, -1, -1, 62, \
+	     -1, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, \
+	     51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -1, -1 };
 
 @
 <p>
@@ -270,7 +283,6 @@ Finally, because the malloc may fail, we introduce a new IFCIDC_Status, S_ERR_AL
 
 <<H_Statuses>>=
 	S_ERR_ALLOC,
-
 @
 <p>
 Once that's done, the implementation of fixid becomes straightforward:
@@ -548,5 +560,158 @@ doc/ifcidc.html: ifcidc.nw | doc;\
 <h2>Writing a Client Application</h2>
 
 <p>
-We now use our library, libifcidc.so, in an example command line utility for IFC GUID compression. It's not entirely portable (it assumes a POSIX compliant system) but is small enough to be ported with minimal effort. We call this utility <emph>ifcc</emph>, a play off "cc" for "compression" or "compilation".
+We now use our library, libifcidc.so, in an example command line utility for IFC GUID compression. It's not entirely portable (it assumes POSIX compliance) but is small enough to be ported with minimal effort. We call this utility <emph>ifcc</emph>, a play off "cc" for "compression" or "compilation".
 </p>
+
+<p>First, we set up our overall program structure.</p>
+
+<<ifcc.c>>=
+<<Client Headers>>
+<<Client Declarations>>
+<<Client Definitions>>
+
+<<Client Headers>>=
+<<Client Standard Headers>>
+
+#include "ifcidc.h"
+
+@
+<p>
+We imagine our utility reading in GUIDS, one per line, from a file (which may be stdin). We indicate this file with a flag, -i. For instance, <emph>ifcc -i guids.txt</emph>. We redirect output of the processed GUIDs with a complementary flag, -o. If -i is left off, the utility takes input from stdin; if -o if left off, output goes to stdout. We indicate compression/decompression operations with -c and -x flags respectively.
+</p>
+
+
+<p>The core feature of such a utility will be the subroutine to process the lines of the input file. For this, we'll need access to the input and output FILE pointers, a handle on the compression algorithm to run (ifcidc_compress or ifcidc_decompress) and an index variable so we know how many characters to read from the input stream before adding a sentinel (36 for compression, 22 for decompression). This description easily leads us to the following declaration:</p>
+
+<<Client Declarations>>=
+static IFCIDC_Status
+process_lines(FILE *fip,
+	      FILE *fop,
+	      const unsigned short si,
+	      IFCIDC_Status (*processor)(const char *in, char **out));
+	      
+@ 
+<p>
+The internal structure of this routine can be simple. We'll need pointers for our input and output buffers as well as an IFCIDC_Status variable to check for success processing each line. If we're reading GUIDs from files, we'll also need stdio.
+</p>
+
+<<Client Standard Headers>>=
+#include <stdio.h>
+
+<<<process_lines>>=
+static IFCIDC_Status
+process_lines(FILE *fip,
+	      FILE *fop,
+	      const unsigned short si,
+	       IFCIDC_Status (*processor)(const char *in, char **out)) {
+
+    char *out;  
+    char *in;
+    char inb[si + 1];
+    IFCIDC_Status s;
+
+    in = &inb[0];
+    while (<<process_lines More Lines To Read>>) {
+      <<process_lines Process A Line>> 
+    }
+
+    return S_OK;
+}
+
+@
+<p>
+For line reading, we opt to use fgets, reading from a line until we reach the number of characters needed for the (de)compression operation or hit a newline -- whichever comes first.
+</p>
+
+<<process_lines More Lines To Read>>=
+fgets(in, si + 1, fip) != NULL
+@
+<p>
+Once we've read a line, we can pass it directly to the compression processor. Just be mindful that this could fail!
+</p>
+
+<<process_lines Process A Line>>=
+in[si] = '\0';
+if((s = processor(in, &out)) != S_OK) {
+   return s;
+}
+else {
+   fprintf(fop, "%s\n", out);
+   free(out);
+}
+
+@
+<p>
+Equipped with our line processing workhorse, we can compose the toplevel of our client application. It's simple enough that we present it inline.
+</p>
+
+<<Client Definitions>>=
+int
+main(const int argc, char *argv[])
+{
+
+  char *fin;
+  char *fon;
+  FILE *fip;
+  FILE *fop;
+  int opt;
+  unsigned short com;
+  IFCIDC_Status status; 
+
+  com = 1;
+  fin = NULL;
+  fon = NULL;
+  fip = stdin;
+  fop = stdout;
+  while ((opt = getopt(argc, argv, "cxi:o:")) != -1) {
+    switch(opt) {
+    case 'c':
+      com = 1;
+      break;
+    case 'x':
+      com = 0;
+      break;
+    case 'i':
+      fin = optarg;
+      break;
+    case 'o':
+      fon = optarg;
+      break;
+    default:    
+      break;
+    }
+  }
+
+
+  if(fin != NULL) {
+    if((fip = fopen(fin, "r")) == NULL) {
+      fprintf(stderr,"Failed to open file %s\n", fin);
+      return EXIT_FAILURE;
+    }    
+  }
+
+
+  if(fon != NULL) {
+    if((fop = fopen(fon, "w")) == NULL) {
+      fprintf(stderr,"Failed to open file %s\n", fon);
+      return EXIT_FAILURE;
+    }    
+  }
+
+  
+  status = (com == 1) ?
+    process_lines(fip, fop, IFCIDC_DECOM_LEN, &ifcidc_compress) :
+    process_lines(fip, fop, IFCIDC_COM_LEN, &ifcidc_decompress) ;
+
+
+  fclose(fip);
+  fclose(fop);
+
+  if(status != S_OK) {
+    fprintf(stderr, "%s: %s\n", argv[0], ifcidc_err_msg(status));
+    return EXIT_FAILURE;
+  }
+  
+  return EXIT_SUCCESS;
+
+}
