@@ -527,7 +527,8 @@ We'll use a makefile to control library compilation. This allows us to produce a
 
 
 <<Toplevel Targets>>=
-all: bin/libifcidc.so doc/ifcidc.html
+all: bin/libifcidc.so
+all: doc/ifcidc.html
 
 <<Folder Structure Targets>>=
 src:; \
@@ -568,6 +569,7 @@ We now use our library, libifcidc.so, in an example command line utility for IFC
 <<ifcc.c>>=
 <<Client Headers>>
 <<Client Declarations>>
+<<Client Toplevel>>
 <<Client Definitions>>
 
 <<Client Headers>>=
@@ -602,9 +604,6 @@ g, and stdlib
 #include <unistd.h>
 
 <<Client Definitions>>=
-<<process_lines>>
-
-<<<process_lines>>=
 static IFCIDC_Status
 process_lines(FILE *fip,
 	      FILE *fop,
@@ -612,11 +611,9 @@ process_lines(FILE *fip,
 	       IFCIDC_Status (*processor)(const char *in, char **out)) {
 
     char *out;  
-    char *in;
-    char inb[si + 1];
+    char in[si + 1];
     IFCIDC_Status s;
 
-    in = &inb[0];
     while (<<process_lines More Lines To Read>>) {
       <<process_lines Process A Line>> 
     }
@@ -626,11 +623,11 @@ process_lines(FILE *fip,
 
 @
 <p>
-For line reading, we opt to use fgets, reading from a line until we reach the number of characters needed for the (de)compression operation or hit a newline -- whichever comes first.
+For line reading, we opt to use fgets, reading from a line until we reach the number of characters needed for the (de)compression operation or hit a newline -- whichever comes first. si + 1 + 1 indicates that we shouldn't read more characters than those needed for the GUID plus a sentinel and newline character.
 </p>
 
 <<process_lines More Lines To Read>>=
-fgets(in, si + 1, fip) != NULL
+fgets(in, si + 1 + 1, fip) != NULL
 @
 <p>
 Once we've read a line, we can pass it directly to the compression processor. Just be mindful that this could fail!
@@ -651,7 +648,7 @@ else {
 Equipped with our line processing workhorse, we can compose the toplevel of our client application. It's simple enough that we present it inline.
 </p>
 
-<<Client Definitions>>=
+<<Client Toplevel>>=
 int
 main(const int argc, char *argv[])
 {
@@ -728,11 +725,16 @@ Finally, let's add the client application to our build rules.
 </p>
 
 <<Makefile>>=
+
 src/ifcc.c: src/ifcidc.h | src;\
 	notangle -Rifcc.c ifcidc.nw > $@
 
-bin/ifcc: bin/libifcidc.so | bin;\
+bin/ifcc: src/ifcc.c bin/libifcidc.so | src bin;\
 	gcc -o $@ src/ifcc.c -Lbin -lifcidc
+
+<<Toplevel Targets>>=
+all: bin/ifcc
+
 @
 <h2>Testing the Client Application</h2>
 
@@ -1272,10 +1274,6 @@ We can add these test rules to our makefile.
 <<Test Files>>
 <<Client Tests>>
 
-<<Client Tests>>=
-<<A-B Test>>
-<<Two Pass Test>>
-
 <<Test Files>>=
 ex/cguids.txt: ex;\
 	notangle -Rcguids.txt ifcidc.nw > $@
@@ -1283,19 +1281,21 @@ ex/cguids.txt: ex;\
 ex/uguids.txt: ex;\
 	notangle -Ruguids.txt ifcidc.nw > $@
 
+<<Client Tests>>=
+<<A-B Test>>
+<<Two Pass Test>>
 
 <<A-B Test>>=
 .PHONY: abtest
 abtest: ex/cguids.txt ex/uguids.txt;\
-	./ifcc -c -i ex/uguids.txt | diff -q - ex/cguids.txt;\
-	./ifcc -x -i ex/cguids.txt | diff -q - ex/uguids.txt
-
+	./bin/ifcc -c -i ex/uguids.txt | diff -q - ex/cguids.txt;\
+	./bin/ifcc -x -i ex/cguids.txt | diff -q - ex/uguids.txt
 
 <<Two Pass Test>>=
 .PHONY: twopasstest
 twopasstest: ex/cguids.txt ex/uguids.txt;\
-	./ifcc -c -i ex/uguids.txt | ./ifcc -x | diff -q - ex/uguids.txt;\
-	./ifcc -x -i ex/cguids.txt | ./ifcc -c | diff -q - ex/cguids.txt
+	./bin/ifcc -c -i ex/uguids.txt | ./bin/ifcc -x | diff -q - ex/uguids.txt;\
+	./bin/ifcc -x -i ex/cguids.txt | ./bin/ifcc -c | diff -q - ex/cguids.txt
 
 <<Client Tests>>=
 .PHONY: test
