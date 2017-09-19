@@ -1,25 +1,20 @@
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
-#include <limits.h> /* LINE_MAX */
-#include <assert.h>
+#include <unistd.h>
+
 
 #include "ifcidc.h"
 
-#define BUF_SIZE 80
-
-
 static IFCIDC_Status
 process_lines(FILE *fip,
-	      FILE *fop,
-	      const unsigned short si,
-	      IFCIDC_Status (*processor)(const char *in, char **out));
-
-
+              FILE *fop,
+              const unsigned short si,
+              const unsigned short so,
+              IFCIDC_Status (*processor)(const char *in, char *out));
+              
 int
 main(const int argc, char *argv[])
 {
-
 
   char *fin;
   char *fon;
@@ -28,10 +23,7 @@ main(const int argc, char *argv[])
   int opt;
   unsigned short com;
   IFCIDC_Status status; 
-  
-  if(!(argc > 1))
-      return EXIT_FAILURE;
- 
+
   com = 1;
   fin = NULL;
   fon = NULL;
@@ -72,13 +64,10 @@ main(const int argc, char *argv[])
     }    
   }
 
-
-  assert(IFCIDC_DECOM_LEN < BUF_SIZE);
-  assert(IFCIDC_COM_LEN < BUF_SIZE);
   
   status = (com == 1) ?
-    process_lines(fip, fop, IFCIDC_DECOM_LEN, &ifcidc_compress) :
-    process_lines(fip, fop, IFCIDC_COM_LEN, &ifcidc_decompress) ;
+    process_lines(fip, fop, IFCIDC_DECOM_LEN, IFCIDC_COM_LEN,   &ifcidc_compress)   :
+    process_lines(fip, fop, IFCIDC_COM_LEN,   IFCIDC_DECOM_LEN, &ifcidc_decompress) ;
 
 
   fclose(fip);
@@ -93,30 +82,33 @@ main(const int argc, char *argv[])
 
 }
 
-
-
 static IFCIDC_Status
 process_lines(FILE *fip,
-	      FILE *fop,
-	      const unsigned short si,
-	       IFCIDC_Status (*processor)(const char *in, char **out)) {
+              FILE *fop,
+              const unsigned short si,
+              const unsigned short so,
+               IFCIDC_Status (*processor)(const char *in, char *out)) {
 
-    char *out;  
-    char *in;
-    char inb[BUF_SIZE];
     IFCIDC_Status s;
+    char *in =  ifcidc_buffer_new();
+    char *out = ifcidc_buffer_new();
     
-    in = &inb[0];
-    while (fgets(in, BUF_SIZE, fip) != NULL) {
+    while (fgets(in, BUFSIZE, fip) != NULL) {
       in[si] = '\0';
-      if((s = processor(in, &out)) != S_OK) {
-	return s;
+      if((s = processor(in, out)) != S_OK) {
+         ifcidc_buffer_del(in);
+         ifcidc_buffer_del(out);
+         return s;
       }
       else {
-	fprintf(fop, "%s\n", out);
-	free(out);
+         fprintf(fop, "%s\n", out);
       }
+ 
     }
 
+    ifcidc_buffer_del(in);
+    ifcidc_buffer_del(out);
     return S_OK;
 }
+
+
