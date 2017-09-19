@@ -12,7 +12,7 @@
 
 
 <p>
-These 22-character strings also represent the same 128-bit number, albeit in a compressed form that seems far removed from the canonical encoding. Our task is to understand how these two encodings map to one another and to translate this understanding in a computer program.
+These 22-character strings also represent the same GUID entity, albeit in a compressed form that seems far removed from the canonical encoding. Our task is to understand how these two encodings map to one another and to translate this understanding in a computer program.
 </p>
     
 <p>
@@ -61,7 +61,7 @@ We'll apply our strategy for IFC GUID compression in the creation of a simple li
 </p>
 
 <p>
-Next, consider the interface specification for such a library. We only need two public procedures -- one to compress an IFC GUID and one to decompress. Naturally, they are duals, so for a string L, decompress(compress(L)) = L. We imagine each of these procedures taking two arguments: the first, in, is the GUID string to be processed, and the second, out, points to a location for us to store the generated dual GUID. Attaching the result of the (de)compression to a location passed by argument frees us to use the procedure's return type for status notification (e.g., OK, FAILED).We also should have constructor and destructor functions for GUID buffers, to be passed as arguments to ifcidc_(de)compress as needed.
+Next, consider the interface specification for such a library. At minimum, we need two public procedures &mdash; one to compress an IFC GUID and one to decompress. Naturally, they are duals, so for a string L, decompress(compress(L)) = L. We imagine each of these procedures taking two arguments: the first, in, is the GUID string to be processed, and the second, out, is a buffer to store the generated dual GUID. Populating the result of the (de)compression in a buffer passed by argument frees us to use the procedure's return type for status notification (e.g., OK, FAILED). 
 </p>
 
 <<ifcidc.h>>=
@@ -74,16 +74,13 @@ typedef enum  {
 <<H_Statuses>>
 } IFCIDC_Status;
 
+<<H_Declarations>>
 
-extern IFCIDC_Status ifcidc_compress(const char *in, char *out);
-extern IFCIDC_Status ifcidc_decompress(const char *in, char *out);
-extern char *ifcidc_buffer_new();
-extern void ifcidc_buffer_del(char *buf);
-extern char *ifcidc_err_msg(IFCIDC_Status err);
-
-#define BUFSIZE 80
 #endif
 
+<<H_Declarations>>=
+extern IFCIDC_Status ifcidc_compress(const char *in, char *out);
+extern IFCIDC_Status ifcidc_decompress(const char *in, char *out);
 @
 <p>
 Three constants are likely to come in handy throughout our program: the length of an uncompressed UUID string (including hyphens), the length of the "normalized" uncompressed UUID string (without hyphens), and the length of the compressed GUID string. Let's make those available from the start so we're less likely to pollute the source file with magic numbers.
@@ -243,7 +240,7 @@ decom(const char *in, char *out) {
   int i, oi, n, t;
 
   i = oi = n =  0;
-  while(i < IFCIDC_COM_LEN) { // check stop condition
+  while(i < IFCIDC_COM_LEN) {
     n  = B642I(in[i]) << 6;
     n += B642I(in[i + 1]);
     t  = n / 16;
@@ -259,12 +256,25 @@ decom(const char *in, char *out) {
 
 @ 
 <p>
-Because in and out are string buffers, now is a good time to define our constructor a destructor procedures.
+Because in and out are string buffers, it would help to have dedicated constructor and deconstructor procedures for them. These buffers can be of a fixed size so long as they're bigger than IFCIDC_DECOM_LEN.
 </p>
+
+<<H_Declarations>>=
+extern char *ifcidc_buffer_new();
+extern void ifcidc_buffer_del(char *buf);
+
+<<H_Constants>>=
+#define BUFSIZE 80
+
+<<Standard Headers>>=
+#include <stdlib.h>
+#include <assert.h>
 
 <<Definitions>>=
 char *
 ifcidc_buffer_new() {
+  assert(BUFSIZE > IFCIDC_DECOM_LEN);
+  
   char *s = malloc((BUFSIZE) * sizeof(char));
   memset(s, ' ', (BUFSIZE) * sizeof(char));
   s[BUFSIZE - 1] = '\0';
@@ -276,12 +286,11 @@ ifcidc_buffer_del(char *buf) {
   free(buf);
 }
 
-
 @
 <h3>String Munging</h3>
 
 <p>
-Our implementation strategy requires some munging of the uncompressed UUID string. Namely, that we have to remove the hyphens from the incoming string and add an extra byte of padding to the start of the string to support byte aligned operations. We'll call the procedure that performs this operation fixid, and its dual, unfixid. They'll use the similar in-out argument conventions as the core compression procedures, with one exception: rather than mutating the output string directly, we'll have (un)fixid take responsibility for allocating our working buffer, which means the client will only have to provide a handle for the buffer to attach to and not provide the buffer itself.
+Our implementation strategy requires some munging of the uncompressed UUID string. Namely, that we have to remove the hyphens from the incoming string and add an extra byte of padding to the start of the string to support byte aligned operations. We'll call the procedure that performs this operation fixid, and its dual, unfixid. They'll use the same in-out argument conventions as the core compression procedures.
 </p>
 
 <<Declarations>>=
@@ -290,20 +299,6 @@ fixid(const char *in, char *out);
 
 static IFCIDC_Status
 unfixid(const char *in, char *out);
-
-@ 
-<p>
-Because we'll be allocating memory for the buffer, we'll need access to malloc, and so stdlib.h. Because (un)fixed are critical operations, it's prudent to include pre/post assertions to avoid contract violations.
-</p>
-
-<<Standard Headers>>=
-#include <stdlib.h>
-#include <assert.h>
-
-@
-<p>
-Once that's done, the implementation of fixid becomes straightforward:
-</p>
 
 <<Definitions>>=
 static IFCIDC_Status
@@ -352,7 +347,7 @@ unfixid(const char *in, char *out) {
 
 @ 
 <p>
-Now we have core compression algorithms and their frontends that can take care of buffer allocation and string normalization. Now all we have to do is tie them together in a public library interface (defined in ifcidc.h) and address the possible failure modes on the input data. We'll look at them in turn, providing handles for the normalized (fixed) UUID, its compressed equivalent, and an index variable i.
+Now we have core compression algorithms and normalization helper procedures. Now all we have to do is wrap them in our public interface and address the possible failure modes on the input data.
 </p>
 
 <<Definitions>>=
@@ -483,6 +478,9 @@ _errordesc {
 <p>
 This permits us to write a utility function to look up an error message from a given error code.</p>
 
+<<H_Declarations>>=
+extern char *ifcidc_err_msg(IFCIDC_Status err);
+
 <<Definitions>>=
 char *
 ifcidc_err_msg(IFCIDC_Status err) {
@@ -550,7 +548,7 @@ doc/ifcidc.html: ifcidc.nw | doc;\
 <h2>Writing a Client Application</h2>
 
 <p>
-We now use our library, libifcidc.so, in an example command line utility for IFC GUID compression. It's not entirely portable (it assumes POSIX compliance) but is small enough to be ported with minimal effort. We call this utility <emph>ifcc</emph>, a play off "cc" for "compression" or "compilation".
+We now use our library, libifcidc.so, in an example command line utility for IFC GUID compression. We call this utility <emph>ifcc</emph>, a play off "cc" for "compression" or "compilation".
 </p>
 
 <p>First, we set up our overall program structure.</p>
@@ -1299,5 +1297,12 @@ test: abtest twopasstest
 <h2>Commentary, Next Steps</h2>
 
 <p>
-Working forward from our analysis, we now have a small library and client application for IFC GUID compression.
+Like every program, IFCIDC makes design tradeoffs. The earliest implementation hid all buffer allocation from the client with the intent to keep the the interface as simple as possible. The weaknesses of this approach became clear in the design of ifcc. Because a new buffer was created for every call to ifcidc_compress, wrapping this call in a loop (which is likely a common use case) means one additional malloc/free pair for every iteration. Because this allocation strategy is hidden from the user, she has no opportunity to optimize for her use case, yet was still burdened to free() the buffer returned as the **out argument to the original ifcidc_compress. More flexible would be to provide dedicated buffer constructor and destructor procedures at the interface level, allowing clients to reuse a single buffer across iterations if they choose. This was the motivation for ifcidc_buffer_new and ifcidc_buffer_del and the pattern used in ifcc.
 </p>
+
+<p>
+The algorithm presented here is hopefully simple and clear enough to support easy porting. Implementation in higher-level languages could be more concise. See the guid.py module of IFCOpenShell for a particularly nice example that leverages Python's list slicing mechanism.
+</p>
+
+
+
