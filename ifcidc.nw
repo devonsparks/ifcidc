@@ -61,8 +61,8 @@ We'll apply our strategy for IFC GUID compression in the creation of a simple li
 </p>
 
 <p>
-Next, consider the interface specification for such a library. We only need two public procedures -- one to compress an IFC GUID and one to decompress. Naturally, they are duals, so for a string L, decompress(compress(L)) = L. We imagine each of these procedures taking two arguments: the first, in, is the GUID string to be processed, and the second, out, points to a location for us to store the generated dual GUID. Attaching the result of the (de)compression to a location passed by argument frees us to use the procedure's return type for status notification (e.g., OK, FAILED). 
-
+Next, consider the interface specification for such a library. We only need two public procedures -- one to compress an IFC GUID and one to decompress. Naturally, they are duals, so for a string L, decompress(compress(L)) = L. We imagine each of these procedures taking two arguments: the first, in, is the GUID string to be processed, and the second, out, points to a location for us to store the generated dual GUID. Attaching the result of the (de)compression to a location passed by argument frees us to use the procedure's return type for status notification (e.g., OK, FAILED).We also should have constructor and destructor functions for GUID buffers, to be passed as arguments to ifcidc_(de)compress as needed.
+</p>
 
 <<ifcidc.h>>=
 #ifndef _IFCIDC_H
@@ -75,10 +75,13 @@ typedef enum  {
 } IFCIDC_Status;
 
 
-extern IFCIDC_Status ifcidc_compress(const char *in, char **out);
-extern IFCIDC_Status ifcidc_decompress(const char *in, char **out);
+extern IFCIDC_Status ifcidc_compress(const char *in, char *out);
+extern IFCIDC_Status ifcidc_decompress(const char *in, char *out);
+extern char *ifcidc_buffer_new();
+extern void ifcidc_buffer_del(char *buf);
 extern char *ifcidc_err_msg(IFCIDC_Status err);
 
+#define BUFSIZE 80
 #endif
 
 @
@@ -179,10 +182,10 @@ We can wrap lookups and bounds checking into macros, one for each lookup table:
 
 <<Macros>>=
 
-#define B162I(A)  (b16mask[(unsigned char)A & 0x7F])
-#define B642I(A)  (b64mask[(unsigned char)A & 0x7F])
-#define IN_B16(A) (!(b16mask[(unsigned char)A & 0x7F] < 0))
-#define IN_B64(A) (!(b64mask[(unsigned char)A & 0x7F] < 0))
+#define B162I(A)  (b16mask[(unsigned char)A])
+#define B642I(A)  (b64mask[(unsigned char)A])
+#define IN_B16(A) (!(b16mask[(unsigned char)A] < 0))
+#define IN_B64(A) (!(b64mask[(unsigned char)A] < 0))
 
 @
 <h3>Compression Implementation</h3>
@@ -221,7 +224,7 @@ com(const char *in, char *out) {
     n += B162I(in[i + 1]) << 4;
     n += B162I(in[i + 2]);
     out[oi + 1] = b64[n % 64];
-    out[oi] = b64[n / 64];
+    out[oi    ] = b64[n / 64];
     oi += 2;
     i  += 3;
   }
@@ -254,6 +257,26 @@ decom(const char *in, char *out) {
   return S_OK;
 }
 
+@ 
+<p>
+Because in and out are string buffers, now is a good time to define our constructor a destructor procedures.
+</p>
+
+<<Definitions>>=
+char *
+ifcidc_buffer_new() {
+  char *s = malloc((BUFSIZE) * sizeof(char));
+  memset(s, ' ', (BUFSIZE) * sizeof(char));
+  s[BUFSIZE - 1] = '\0';
+  return s;
+}
+
+void
+ifcidc_buffer_del(char *buf) {
+  free(buf);
+}
+
+
 @
 <h3>String Munging</h3>
 
@@ -263,10 +286,10 @@ Our implementation strategy requires some munging of the uncompressed UUID strin
 
 <<Declarations>>=
 static IFCIDC_Status
-fixid(const char *in, char **out);
+fixid(const char *in, char *out);
 
 static IFCIDC_Status
-unfixid(const char *in, char **out);
+unfixid(const char *in, char *out);
 
 @ 
 <p>
@@ -276,6 +299,7 @@ Because we'll be allocating memory for the buffer, we'll need access to malloc, 
 <<Standard Headers>>=
 #include <stdlib.h>
 #include <assert.h>
+
 @
 <p>
 Finally, because the malloc may fail, we introduce a new IFCIDC_Status, S_ERR_ALLOC, to address this case.
@@ -290,25 +314,20 @@ Once that's done, the implementation of fixid becomes straightforward:
 
 <<Definitions>>=
 static IFCIDC_Status
-fixid(const char *in, char **out) {
+fixid(const char *in, char *out) {
   unsigned int i, j;
-  char *s;
 
-  if((s = malloc((1 + IFCIDC_FIXED_DECOM_LEN + 1) * sizeof(char))) == NULL)
-    return S_ERR_ALLOC;
-
-  s[0] = '0';
-  s[IFCIDC_FIXED_DECOM_LEN + 1] = '\0';
+  out[0] = '0';
+  out[IFCIDC_FIXED_DECOM_LEN + 1] = '\0';
   
   for(i = j = 0; in[i] != '\0'; i++) {
     if(in[i] != '-') {
-	s[++j] = in[i];
+	out[++j] = in[i];
       }
   }
 
   assert(j == IFCIDC_FIXED_DECOM_LEN);
 
-  *out = s;
   return S_OK;
   
 }
@@ -320,25 +339,20 @@ unfixid just needs to reverse the work done by fixid: adding the hyphens back in
 
 <<Definitions>>=
 static IFCIDC_Status
-unfixid(const char *in, char **out) {
+unfixid(const char *in, char *out) {
   unsigned int i, j;
-  char *s;
 
-  if((s = malloc((IFCIDC_FIXED_DECOM_LEN + 1) * sizeof(char))) == NULL)
-    return S_ERR_ALLOC;
-
-  s[IFCIDC_FIXED_DECOM_LEN] = '\0';
+  out[IFCIDC_DECOM_LEN] = '\0';
 
   for(j = 0, i = 1; in[i] != '\0';) {
     if(j == 8 || j == 13 || j == 18 || j == 23) {
-      s[j++] = '-';
+      out[j++] = '-';
     }
     else {       
-      s[j++] = in[i++];
+      out[j++] = in[i++];
     }
   }
 
-  *out = s;
   return S_OK;
   
 }
@@ -350,20 +364,16 @@ Now we have core compression algorithms and their frontends that can take care o
 
 <<Definitions>>=
 IFCIDC_Status
-ifcidc_compress(const char *in, char **out) {
-  char *fixed;
-  char *comed;
+ifcidc_compress(const char *in, char *out) {
+  char comed[IFCIDC_FIXED_DECOM_LEN + 1];
   unsigned char i;
-
+  
   <<Check Compress Input Length>>
   <<Check Compress Input Sentinel>>
   <<Check ASCII Compliance>>
   <<Check fixid Success>>
-  <<Check Result Allocation>>  
   <<Check Compression Success>>    
 
-   free(fixed);  
-  *out = comed;
   return S_OK;
 }
 
@@ -409,18 +419,13 @@ Now the failure modes are straightforward to write:
   }
 
 <<Check fixid Success>>=
-  if(fixid(in, &fixed) != S_OK) {
+  if(fixid(in, comed) != S_OK) {
     return S_ERR_NORMALIZE;
   }
 
-<<Check Result Allocation>>=
-  if((comed = malloc((IFCIDC_COM_LEN + 1) * sizeof(char))) == NULL) {
-    return S_ERR_ALLOC;
-  }
 
 <<Check Compression Success>>=
-  if(com(fixed, comed) != S_OK) {
-    free(comed);
+  if(com(comed, out) != S_OK) {
     return S_ERR_COM;
   }
 
@@ -431,9 +436,8 @@ The public GUID decompression procedure is similar enough to its compression cou
 
 <<Definitions>>=
 IFCIDC_Status
-ifcidc_decompress(const char *in, char **out) {
-  char *fixed;
-  char *decomed;
+ifcidc_decompress(const char *in, char *out) {
+  char decomed[IFCIDC_FIXED_DECOM_LEN + 1];
   unsigned char i;
 
   if(strlen(in) != IFCIDC_COM_LEN) {
@@ -448,22 +452,15 @@ ifcidc_decompress(const char *in, char **out) {
     if(!IN_B64(in[i]))
       return S_ERR_ASCII;
   
-  if((decomed = malloc((IFCIDC_FIXED_DECOM_LEN + 1)* sizeof(char))) == NULL) {
-    return S_ERR_ALLOC;
-  }
   
   if(decom(in, decomed) != S_OK) {
-    free(decomed);
     return S_ERR_COM;
   }
   
-  if(unfixid(decomed, &fixed) != S_OK) {
-    free(decomed);
+  if(unfixid(decomed, out) != S_OK) {
     return S_ERR_NORMALIZE;
   }
 
-  free(decomed);
-  *out = fixed;
   return S_OK;
 }
 
@@ -583,14 +580,15 @@ We imagine our utility reading in GUIDS, one per line, from a file (which may be
 </p>
 
 
-<p>The core feature of such a utility will be the subroutine to process the lines of the input file. For this, we'll need access to the input and output FILE pointers, a handle on the compression algorithm to run (ifcidc_compress or ifcidc_decompress) and an index variable so we know how many characters to read from the input stream before adding a sentinel (36 for compression, 22 for decompression). This description easily leads us to the following declaration:</p>
+<p>The core feature of such a utility will be the subroutine to process the lines of the input file. For this, we'll need access to the input and output FILE pointers, a handle on the compression algorithm to run (ifcidc_compress or ifcidc_decompress) and index variables so we know how many characters to read from the input and streams before adding a sentinel (36 for compression, 22 for decompression). This description easily leads us to the following declaration:</p>
 
 <<Client Declarations>>=
 static IFCIDC_Status
 process_lines(FILE *fip,
 	      FILE *fop,
 	      const unsigned short si,
-	      IFCIDC_Status (*processor)(const char *in, char **out));
+	      const unsigned short so,
+	      IFCIDC_Status (*processor)(const char *in, char *out));
 	      
 @ 
 <p>
@@ -608,16 +606,19 @@ static IFCIDC_Status
 process_lines(FILE *fip,
 	      FILE *fop,
 	      const unsigned short si,
-	       IFCIDC_Status (*processor)(const char *in, char **out)) {
+	      const unsigned short so,
+	       IFCIDC_Status (*processor)(const char *in, char *out)) {
 
-    char *out;  
-    char in[si + 1];
     IFCIDC_Status s;
-
+    char *in =  ifcidc_buffer_new();
+    char *out = ifcidc_buffer_new();
+    
     while (<<process_lines More Lines To Read>>) {
       <<process_lines Process A Line>> 
     }
 
+    ifcidc_buffer_del(in);
+    ifcidc_buffer_del(out);
     return S_OK;
 }
 
@@ -627,7 +628,7 @@ For line reading, we opt to use fgets, reading from a line until we reach the nu
 </p>
 
 <<process_lines More Lines To Read>>=
-fgets(in, si + 1 + 1, fip) != NULL
+fgets(in, BUFSIZE, fip) != NULL
 @
 <p>
 Once we've read a line, we can pass it directly to the compression processor. Just be mindful that this could fail!
@@ -635,12 +636,11 @@ Once we've read a line, we can pass it directly to the compression processor. Ju
 
 <<process_lines Process A Line>>=
 in[si] = '\0';
-if((s = processor(in, &out)) != S_OK) {
+if((s = processor(in, out)) != S_OK) {
    return s;
 }
 else {
    fprintf(fop, "%s\n", out);
-   free(out);
 }
 
 @
@@ -703,8 +703,8 @@ main(const int argc, char *argv[])
 
   
   status = (com == 1) ?
-    process_lines(fip, fop, IFCIDC_DECOM_LEN, &ifcidc_compress) :
-    process_lines(fip, fop, IFCIDC_COM_LEN, &ifcidc_decompress) ;
+    process_lines(fip, fop, IFCIDC_DECOM_LEN, IFCIDC_COM_LEN,   &ifcidc_compress)   :
+    process_lines(fip, fop, IFCIDC_COM_LEN,   IFCIDC_DECOM_LEN, &ifcidc_decompress) ;
 
 
   fclose(fip);
@@ -1264,7 +1264,7 @@ At a minimum, ifcc should be able to:
 <li>Convert one test file into the other with no differences</li>
 <li>Run the same test file through two passes of ifcc -- once to compress, once to decompress -- and return the original file unchanged.</li>
 </ol>
-We can add these test rules to our makefile.
+We can add these test rules to our makefile. Remember to add the location libifcidc.so to LD_LIBRARY_PATH.
 </p>
 
 <<Makefile>>=
@@ -1300,3 +1300,10 @@ twopasstest: ex/cguids.txt ex/uguids.txt;\
 <<Client Tests>>=
 .PHONY: test
 test: abtest twopasstest
+
+@
+<h2>Commentary, Next Steps</h2>
+
+<p>
+Working forward from our analysis, we now have a small library and client application for IFC GUID compression.
+</p>
