@@ -637,6 +637,8 @@ Once we've read a line, we can pass it directly to the compression processor. Ju
 <<process_lines Process A Line>>=
 in[si] = '\0';
 if((s = processor(in, out)) != S_OK) {
+   ifcidc_buffer_del(in);
+   ifcidc_buffer_del(out);
    return s;
 }
 else {
