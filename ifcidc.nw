@@ -302,13 +302,6 @@ Because we'll be allocating memory for the buffer, we'll need access to malloc, 
 
 @
 <p>
-Finally, because the malloc may fail, we introduce a new IFCIDC_Status, S_ERR_ALLOC, to address this case.
-</p>
-
-<<H_Statuses>>=
-	S_ERR_ALLOC,
-@
-<p>
 Once that's done, the implementation of fixid becomes straightforward:
 </p>
 
@@ -379,7 +372,7 @@ ifcidc_compress(const char *in, char *out) {
 
 @
 <p>
-We'll need one IFC_Status for each of the possible failure modes. Let's add them now, skipping the S_ERR_ALLOC we already redefined.
+We'll need one IFC_Status for each of the possible failure modes. Let's add them now.
 </p>
 
 <<H_Statuses>>=
@@ -482,7 +475,6 @@ _errordesc {
   { S_ERR_SENTINEL,  "Expected string sentinel not found."},
   { S_ERR_ASCII,     "Non-ASCII character found in input."},
   { S_ERR_NORMALIZE, "Unable to normalize input string."},
-  { S_ERR_ALLOC,     "Unable to allocate space for processing."},
   { S_ERR_COM,       "Unable to perform compression operation."}
 };
 
