@@ -1297,12 +1297,21 @@ test: abtest twopasstest
 <h2>Commentary, Next Steps</h2>
 
 <p>
-Like every program, IFCIDC makes design tradeoffs. The earliest implementation hid all buffer allocation from the client with the intent to keep the the interface as simple as possible. The weaknesses of this approach became clear in the design of ifcc. Because a new buffer was created for every call to ifcidc_compress, wrapping this call in a loop (which is likely a common use case) means one additional malloc/free pair for every iteration. Because this allocation strategy is hidden from the user, she has no opportunity to optimize for her use case, yet was still burdened to free() the buffer returned as the **out argument to the original ifcidc_compress. More flexible would be to provide dedicated buffer constructor and destructor procedures at the interface level, allowing clients to reuse a single buffer across iterations if they choose. This was the motivation for ifcidc_buffer_new and ifcidc_buffer_del and the pattern used in ifcc.
+Like every program, IFCIDC makes design tradeoffs. The earliest implementation hid all buffer allocation from the client with the intent to keep the interface as simple as possible. The weaknesses of this approach became clear in the design of ifcc. Because a new buffer was created for every call to ifcidc_compress, wrapping this call in a loop (which is likely a common use case) means one additional malloc/free pair for every iteration. With the allocation strategy is hidden from the user, she had no opportunity to optimize for her use case, yet was still burdened to free() the buffer returned as the **out argument to the original ifcidc_compress. More flexible would be to provide dedicated buffer constructor and destructor procedures at the interface level, allowing clients to reuse a single buffer across iterations as they choose. This was the motivation for ifcidc_buffer_new and ifcidc_buffer_del and the pattern applied to ifcc.
 </p>
 
 <p>
-The algorithm presented here is hopefully simple and clear enough to support easy porting. Implementation in higher-level languages could be more concise. See the guid.py module of IFCOpenShell for a particularly nice example that leverages Python's list slicing mechanism.
+The algorithm presented here is hopefully clear enough to support easy porting. Implementation in higher-level languages could be more concise. See the guid.py module of IFCOpenShell for a particularly nice example that leverages Python's list slicing mechanism.
 </p>
 
+<p>
+To extract the full project folder from this document, make sure you have GNU make and Norman Ramsey's noweb installed on a *nix machine. On a command line, run:
+</p>
+
+<pre>$ notangle -RMakefile ifcidc.nw > Makefile</pre>
+
+<p>
+A call to <emph>make</emph> will then build the library and client application; <emph>make test</emph> will check the application against sample data. 
+</p>
 
 
