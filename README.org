@@ -1470,10 +1470,6 @@ uninstall:
 	rm $(prefix)/lib/libifcidc.so
 	rm $(prefix)/bin/ifcc
 
-
-#+name: Phony-Targets
-#+begin_src makefile :exports code
-
 .PHONY: leaks
 leaks:
 	valgrind --track-origins=yes ./$(bindir)/ifcc -c -i $(exdir)/uguids.txt -o /dev/null
@@ -1492,4 +1488,4 @@ then execute ~M-x org-babel-tangle~ followed by ~make~.
 
 * License
 
-  /ifcidc/ has an [[https://opensource.org/licenses/MIT][MIT license]].
+/ifcidc/ has an [[https://opensource.org/licenses/MIT][MIT license]].
