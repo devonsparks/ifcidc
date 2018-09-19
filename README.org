@@ -387,12 +387,11 @@ IFCIDC_Status
 ifcidc_buffer_new(char **buf) {
   assert(BUFSIZE > IFCIDC_DECOM_LEN);
 
-  char *s = *buf;
-  if((s = malloc((BUFSIZE) * sizeof(char))) == NULL)
+  if((*buf = malloc((BUFSIZE) * sizeof(char))) == NULL)
      return S_ERR_MEM;
 
-  memset(s, ' ', (BUFSIZE) * sizeof(char));
-  s[BUFSIZE - 1] = '\0';
+  memset(*buf, ' ', (BUFSIZE) * sizeof(char));
+  (*buf)[BUFSIZE - 1] = '\0';
   return S_OK;
 }
 
@@ -769,7 +768,6 @@ process_lines(FILE *fip,
       return s;
     if((s = ifcidc_buffer_new(&out)) != S_OK)
       return s;
-    
     while (<<process_lines-More-Lines-To-Read>>) {
       <<process_lines-Process-A-Line>> 
     }
@@ -865,11 +863,9 @@ main(const int argc, char *argv[])
     }    
   }
 
-  
   status = (com == 1) ?
     process_lines(fip, fop, IFCIDC_DECOM_LEN, IFCIDC_COM_LEN,   &ifcidc_compress)   :
     process_lines(fip, fop, IFCIDC_COM_LEN,   IFCIDC_DECOM_LEN, &ifcidc_decompress) ;
-
 
   fclose(fip);
   fclose(fop);
@@ -904,8 +900,13 @@ the second, the same 256 IFC GUIDs in their compressed form. These
 have been produced by an externally validated tool.
 
 
+#+name: Tooling-Targets
+#+begin_src makefile :exports code
+exdir=ex
+#+end_src
+
 #+name Uncompressed GUIDs
-#+begin_src text :exports code :tangle ex/uguids.txt :mkdirp yes
+#+begin_src text :exports code :tangle ex/uguids.txt :mkdirp yes :padline no
 3085A8E4-61FD-4776-9FF1-1B24A646CA4F
 12197C0B-DFA7-4C19-B3E6-D1A9A59663AB
 163EFED7-1B9A-4E8C-B69A-6497F95C232A
@@ -1165,7 +1166,7 @@ B29D2E4D-9209-4EF1-AA55-9DF70BF727FE
 #+end_src
 
 #+name: Compressed GUIDS
-#+begin_src text :exports code :tangle ex/cguids.txt :mkdirp yes
+#+begin_src text :exports code :tangle ex/cguids.txt :mkdirp yes :padline no
 0mXQZaOVr7Tf$n6oIcHifF
 0I6NmBtwTC6RFcqQcbbcEh
 0MFlxN6vfEZBQQP9VvN2Cg
@@ -1431,40 +1432,24 @@ At a minimum, ifcc should be able to:
 
 We can add these test rules to our makefile. Remember to add the location libifcidc.so to LD_LIBRARY_PATH.
 
-#+name: Makefile
+#+name: Phony-Targets
 #+begin_src makefile :exports code
-<<Testing Targets>>
 
-<<Testing Targets>>=
-<<Test Files>>
-<<Client Tests>>
+.PHONY: test1pass
+test1pass: $(bindir)/ifcc $(exdir)/uguids.txt $(exdir)/cguids.txt
+	$(bindir)/ifcc -c -i ex/uguids.txt | diff -q - ex/cguids.txt;\
+	$(bindir)/ifcc -x -i ex/cguids.txt | diff -q - ex/uguids.txt
 
-<<Test Files>>=
-ex/cguids.txt: ex;\
-	notangle -Rcguids.txt ifcidc.nw > $@
 
-ex/uguids.txt: ex;\
-	notangle -Ruguids.txt ifcidc.nw > $@
 
-<<Client Tests>>=
-<<A-B Test>>
-<<Two Pass Test>>
-
-<<A-B Test>>=
-.PHONY: abtest
-abtest: ex/cguids.txt ex/uguids.txt;\
-	./bin/ifcc -c -i ex/uguids.txt | diff -q - ex/cguids.txt;\
-	./bin/ifcc -x -i ex/cguids.txt | diff -q - ex/uguids.txt
-
-<<Two Pass Test>>=
-.PHONY: twopasstest
-twopasstest: ex/cguids.txt ex/uguids.txt;\
+.PHONY: test2pass
+test2pass: 
 	./bin/ifcc -c -i ex/uguids.txt | ./bin/ifcc -x | diff -q - ex/uguids.txt;\
 	./bin/ifcc -x -i ex/cguids.txt | ./bin/ifcc -c | diff -q - ex/cguids.txt
 
-<<Client-Tests>>=
-.PHONY: test
-test: abtest twopasstest
+
+.PHONY: check
+check: test1pass test2pass
 
 #+end_src
 
@@ -1505,6 +1490,6 @@ A call to /make/ will then build the library and client application;
 #+begin_src makefile :exports code
 .PHONY: clean
 clean:
-	rm -rf $(bindir) $(incdir) $(srcdir) $(libdir) Makefile
+	rm -rf $(bindir) $(incdir) $(srcdir) $(libdir) $(exdir) Makefile
 #+end_src
 

@@ -1,60 +1,42 @@
-all: bin/libifcidc.so
-all: doc/ifcidc.html
 
-all: bin/ifcc
+.PHONY: default
+default: all
 
-src:; \
-        mkdir -p $@
-ex:;\
-        mkdir -p $@
-bin:; \
-        mkdir -p $@
-doc:;\
-        mkdir -p $@
+srcdir=src
+bindir=bin
+incdir=inc
+libdir=lib
 
-src/ifcidc.c: ifcidc.nw | src;\
-        notangle -Rifcidc.c ifcidc.nw > $@
+cc=LD_LIBRARY_PATH=$(libdir) gcc
+cflags=-I$(incdir) -Wall -g
+exdir=ex
 
-src/ifcidc.h: ifcidc.nw | src;\
-        notangle -Rifcidc.h ifcidc.nw > $@
+$(libdir)/libifcidc.so: $(srcdir)/ifcidc.c
+	mkdir -p $(libdir)
+	$(cc) $(cflags) -shared -fPIC -o $@ $^
+all: $(libdir)/libifcidc.so
+$(bindir)/ifcc: $(srcdir)/ifcc.c $(libdir)/libifcidc.so
+	mkdir -p $(bindir)
+	$(cc) $(cflags) -L$(libdir) -lifcidc -o $@ $^
+all: $(bindir)/ifcc
 
-bin/ifcidc.o: src/ifcidc.c src/ifcidc.h | bin;\
-        gcc -c -o $@ -Wall -Werror -fpic src/ifcidc.c
 
-bin/libifcidc.so: bin/ifcidc.o | bin;\
-        gcc -shared -o $@ bin/ifcidc.o
-
-doc/ifcidc.html: ifcidc.nw | doc;\
-        noweave -html ifcidc.nw > $@
-
+.PHONY: test1pass
+test1pass: $(bindir)/ifcc $(exdir)/uguids.txt $(exdir)/cguids.txt
+	$(bindir)/ifcc -c -i ex/uguids.txt | diff -q - ex/cguids.txt;\
+	$(bindir)/ifcc -x -i ex/cguids.txt | diff -q - ex/uguids.txt
 
 
 
-src/ifcc.c: src/ifcidc.h | src;\
-        notangle -Rifcc.c ifcidc.nw > $@
-
-bin/ifcc: src/ifcc.c bin/libifcidc.so | src bin;\
-        gcc -o $@ src/ifcc.c -Lbin -lifcidc
-
-ex/cguids.txt: ex;\
-        notangle -Rcguids.txt ifcidc.nw > $@
-
-ex/uguids.txt: ex;\
-        notangle -Ruguids.txt ifcidc.nw > $@
-
-.PHONY: abtest
-abtest: ex/cguids.txt ex/uguids.txt;\
-        ./bin/ifcc -c -i ex/uguids.txt | diff -q - ex/cguids.txt;\
-        ./bin/ifcc -x -i ex/cguids.txt | diff -q - ex/uguids.txt
-
-.PHONY: twopasstest
-twopasstest: ex/cguids.txt ex/uguids.txt;\
-        ./bin/ifcc -c -i ex/uguids.txt | ./bin/ifcc -x | diff -q - ex/uguids.txt;\
-        ./bin/ifcc -x -i ex/cguids.txt | ./bin/ifcc -c | diff -q - ex/cguids.txt
+.PHONY: test2pass
+test2pass: 
+	./bin/ifcc -c -i ex/uguids.txt | ./bin/ifcc -x | diff -q - ex/uguids.txt;\
+	./bin/ifcc -x -i ex/cguids.txt | ./bin/ifcc -c | diff -q - ex/cguids.txt
 
 
-.PHONY: test
-test: abtest twopasstest
+.PHONY: check
+check: test1pass test2pass
 
-
-
+.PHONY: clean
+clean:
+	rm -rf $(bindir) $(incdir) $(srcdir) $(libdir) $(exdir) Makefile

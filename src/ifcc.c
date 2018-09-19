@@ -1,17 +1,15 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-
 #include "ifcidc.h"
-
 static IFCIDC_Status
 process_lines(FILE *fip,
-              FILE *fop,
-              const unsigned short si,
-              const unsigned short so,
-              IFCIDC_Status (*processor)(const char *in, char *out));
-              
+	      FILE *fop,
+	      const unsigned short si,
+	      const unsigned short so,
+	      IFCIDC_Status (*processor)(const char *in, char *out));
 int
 main(const int argc, char *argv[])
 {
@@ -64,11 +62,9 @@ main(const int argc, char *argv[])
     }    
   }
 
-  
   status = (com == 1) ?
     process_lines(fip, fop, IFCIDC_DECOM_LEN, IFCIDC_COM_LEN,   &ifcidc_compress)   :
     process_lines(fip, fop, IFCIDC_COM_LEN,   IFCIDC_DECOM_LEN, &ifcidc_decompress) ;
-
 
   fclose(fip);
   fclose(fop);
@@ -81,18 +77,20 @@ main(const int argc, char *argv[])
   return EXIT_SUCCESS;
 
 }
-
 static IFCIDC_Status
 process_lines(FILE *fip,
-              FILE *fop,
-              const unsigned short si,
-              const unsigned short so,
-               IFCIDC_Status (*processor)(const char *in, char *out)) {
+	      FILE *fop,
+	      const unsigned short si,
+	      const unsigned short so,
+	       IFCIDC_Status (*processor)(const char *in, char *out)) {
 
     IFCIDC_Status s;
-    char *in =  ifcidc_buffer_new();
-    char *out = ifcidc_buffer_new();
-    
+    char *in, *out;
+
+    if((s = ifcidc_buffer_new(&in)) != S_OK)
+      return s;
+    if((s = ifcidc_buffer_new(&out)) != S_OK)
+      return s;
     while (fgets(in, BUFSIZE, fip) != NULL) {
       in[si] = '\0';
       if((s = processor(in, out)) != S_OK) {
@@ -102,13 +100,10 @@ process_lines(FILE *fip,
       }
       else {
          fprintf(fop, "%s\n", out);
-      }
- 
+      } 
     }
 
     ifcidc_buffer_del(in);
     ifcidc_buffer_del(out);
     return S_OK;
 }
-
-
