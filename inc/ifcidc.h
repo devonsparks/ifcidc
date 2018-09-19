@@ -9,12 +9,12 @@
 
 typedef enum  {
     S_OK = 0,
+    S_ERR_MEM,
     S_ERR_INPUT_LEN,
     S_ERR_SENTINEL,
     S_ERR_ASCII,
     S_ERR_NORMALIZE,
     S_ERR_COM,
-    S_ERR_MEM
 } IFCIDC_Status;
 
 IFCIDC_Status 

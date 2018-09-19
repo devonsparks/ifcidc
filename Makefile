@@ -10,6 +10,7 @@ libdir=lib
 cc=LD_LIBRARY_PATH=$(libdir) gcc
 cflags=-I$(incdir) -Wall -g
 exdir=ex
+prefix=/usr/local
 
 $(libdir)/libifcidc.so: $(srcdir)/ifcidc.c
 	mkdir -p $(libdir)
@@ -36,6 +37,25 @@ test2pass:
 
 .PHONY: check
 check: test1pass test2pass
+
+.PHONY: install
+install:
+	cp $(lib) $(prefix)/lib
+	cp $(exe) $(prefix)/bin
+
+.PHONY: uninstall
+uninstall:
+	rm $(prefix)/lib/libifcidc.so
+	rm $(prefix)/bin/ifcc
+
+
+#+name: Phony-Targets
+#+begin_src makefile :exports code
+
+.PHONY: leaks
+leaks:
+	valgrind --track-origins=yes ./$(bindir)/ifcc -c -i $(exdir)/uguids.txt -o /dev/null
+	valgrind --track-origins=yes ./$(bindir)/ifcc -x -i $(exdir)/cguids.txt -o /dev/null
 
 .PHONY: clean
 clean:

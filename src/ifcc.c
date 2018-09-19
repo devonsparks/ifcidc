@@ -4,12 +4,14 @@
 #include <unistd.h>
 
 #include "ifcidc.h"
+
 static IFCIDC_Status
 process_lines(FILE *fip,
 	      FILE *fop,
 	      const unsigned short si,
 	      const unsigned short so,
 	      IFCIDC_Status (*processor)(const char *in, char *out));
+
 int
 main(const int argc, char *argv[])
 {
@@ -77,6 +79,7 @@ main(const int argc, char *argv[])
   return EXIT_SUCCESS;
 
 }
+
 static IFCIDC_Status
 process_lines(FILE *fip,
 	      FILE *fop,
