@@ -1,5 +1,7 @@
-#+TITLE: ifcidc: A literate IFC GUID (de)compression library.
+#+TITLE: ifcidc: A literate IFC GUID (de)compression library
 #+AUTHOR: Devon Sparks
+
+[[file:https://travis-ci.org/devonsparks/ifcidc.svg?branch=master]]
 
 * Context
 If you work with IFC files in any depth, you'll inevitably confront
